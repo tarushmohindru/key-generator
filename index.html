@@ -53,219 +53,183 @@
     </div>
 
     <script>
-        // Keccak-256 implementation
         class Keccak {
-            static PADDING = [1, 256, 65536, 16777216];
-            static SHIFT = [0, 8, 16, 24];
-            static RC = [1, 0, 32898, 0, 32906, 2147483648, 2147516416, 2147483648, 32907, 0, 2147483649, 0, 2147516545, 2147483648, 32777, 2147483648, 138, 0, 136, 0, 2147516425, 0, 2147483658, 0, 2147516555, 0, 139, 2147483648, 32905, 2147483648, 32771, 2147483648, 32770, 2147483648, 128, 2147483648, 32778, 0, 2147483658, 2147483648, 2147516545, 2147483648, 32896, 2147483648, 2147483649, 0, 2147516424, 2147483648];
+            static hash(input) {
+                const keccak = new Keccak();
+                keccak.update(input);
+                return keccak.digest();
+            }
 
             constructor() {
-                this.blocks = [];
-                this.reset();
+                this.state = new Uint32Array(25);
+                this.temp = new Uint32Array(25);
+                this.ptr = 0;
             }
 
-            reset() {
-                this.blocks = new Array(50).fill(0);
-                this.blockLen = 0;
-                this.count = 0;
-                this.squeezing = false;
-            }
-
-            absorb(data) {
-                for (let i = 0; i < data.length; i++) {
-                    this.blocks[this.count] ^= data[i];
-                    this.count++;
-                    if (this.count === 136) {
+            update(input) {
+                for (let i = 0; i < input.length; i++) {
+                    this.state[Math.floor(this.ptr / 4)] ^= input[i] << (8 * (this.ptr % 4));
+                    this.ptr++;
+                    if (this.ptr >= 136) {
                         this.keccakf();
-                        this.count = 0;
+                        this.ptr = 0;
                     }
                 }
+                return this;
             }
 
-            squeeze(length) {
-                const output = new Uint8Array(length);
-                let offset = 0;
-                
-                while (offset < length) {
-                    if (this.count === 136) {
-                        this.keccakf();
-                        this.count = 0;
-                    }
-                    const n = Math.min(length - offset, 136 - this.count);
-                    for (let i = 0; i < n; i++) {
-                        output[offset + i] = this.blocks[this.count + i];
-                    }
-                    this.count += n;
-                    offset += n;
+            digest() {
+                // Padding
+                this.state[Math.floor(this.ptr / 4)] ^= 0x01 << (8 * (this.ptr % 4));
+                this.ptr = 136;
+                this.state[Math.floor(this.ptr / 4) - 1] ^= 0x80 << (8 * ((this.ptr - 1) % 4));
+                this.keccakf();
+
+                // Output
+                const out = new Uint8Array(32);
+                for (let i = 0; i < 32; i++) {
+                    out[i] = (this.state[Math.floor(i / 4)] >> (8 * (i % 4))) & 0xff;
                 }
-                
-                return output;
+                return out;
             }
 
             keccakf() {
-                let t, bc0, bc1, bc2, bc3, bc4;
-                let round = 0;
-                let state = this.blocks;
-
-                for (round = 0; round < 24; round++) {
-                    // Theta
-                    bc0 = state[0] ^ state[5] ^ state[10] ^ state[15] ^ state[20];
-                    bc1 = state[1] ^ state[6] ^ state[11] ^ state[16] ^ state[21];
-                    bc2 = state[2] ^ state[7] ^ state[12] ^ state[17] ^ state[22];
-                    bc3 = state[3] ^ state[8] ^ state[13] ^ state[18] ^ state[23];
-                    bc4 = state[4] ^ state[9] ^ state[14] ^ state[19] ^ state[24];
-
-                    for (let i = 0; i < 5; i++) {
-                        t = bc4 ^ ((bc1 << 1) | (bc1 >>> 31));
-                        state[i] ^= t;
-                        state[i + 5] ^= t;
-                        state[i + 10] ^= t;
-                        state[i + 15] ^= t;
-                        state[i + 20] ^= t;
-
-                        t = bc0;
-                        bc0 = bc1;
-                        bc1 = bc2;
-                        bc2 = bc3;
-                        bc3 = bc4;
-                        bc4 = t;
+                for (let round = 0; round < 24; round++) {
+                    // θ step
+                    for (let x = 0; x < 5; x++) {
+                        this.temp[x] = 0;
+                        for (let y = 0; y < 5; y++) {
+                            this.temp[x] ^= this.state[x + 5 * y];
+                        }
+                    }
+                    for (let x = 0; x < 5; x++) {
+                        const t = this.temp[(x + 4) % 5] ^ ((this.temp[(x + 1) % 5] << 1) | (this.temp[(x + 1) % 5] >>> 31));
+                        for (let y = 0; y < 5; y++) {
+                            this.state[x + 5 * y] ^= t;
+                        }
                     }
 
-                    // Rho Pi
-                    t = state[1];
-                    for (let i = 0; i < 24; i++) {
-                        const j = Keccak.RC[i];
-                        bc0 = state[j];
-                        state[j] = ((t << j) | (t >>> (32 - j)));
-                        t = bc0;
+                    // ρ and π steps
+                    let x = 1, y = 0;
+                    let current = this.state[1];
+                    for (let t = 0; t < 24; t++) {
+                        const r = ((t + 1) * (t + 2) / 2) % 64;
+                        const temp = x;
+                        x = y;
+                        y = (2 * temp + 3 * y) % 5;
+                        const next = this.state[x + 5 * y];
+                        this.state[x + 5 * y] = (current << r) | (current >>> (32 - r));
+                        current = next;
                     }
 
-                    // Chi
-                    for (let j = 0; j < 25; j += 5) {
-                        bc0 = state[j];
-                        bc1 = state[j + 1];
-                        bc2 = state[j + 2];
-                        bc3 = state[j + 3];
-                        bc4 = state[j + 4];
-                        state[j] ^= (~bc1) & bc2;
-                        state[j + 1] ^= (~bc2) & bc3;
-                        state[j + 2] ^= (~bc3) & bc4;
-                        state[j + 3] ^= (~bc4) & bc0;
-                        state[j + 4] ^= (~bc0) & bc1;
+                    // χ step
+                    for (let y = 0; y < 5; y++) {
+                        for (let x = 0; x < 5; x++) {
+                            this.temp[x] = this.state[x + 5 * y];
+                        }
+                        for (let x = 0; x < 5; x++) {
+                            this.state[x + 5 * y] = this.temp[x] ^ ((~this.temp[(x + 1) % 5]) & this.temp[(x + 2) % 5]);
+                        }
                     }
 
-                    // Iota
-                    state[0] ^= Keccak.RC[round];
+                    // ι step
+                    let RC = 1;
+                    for (let j = 0; j < 7; j++) {
+                        RC = ((RC << 1) ^ ((RC >> 7) * 0x71)) % 256;
+                        if (RC & 2) {
+                            this.state[0] ^= 1 << ((1 << j) - 1);
+                        }
+                    }
                 }
             }
+        }
 
-            static hash(data) {
-                const h = new Keccak();
-                h.absorb(data);
-                return h.squeeze(32);
+        // Point on secp256k1 curve
+        class Point {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
             }
-        }
 
-        // secp256k1 curve parameters
-        const secp256k1 = {
-            p: BigInt('0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F'),
-            n: BigInt('0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141'),
-            a: BigInt(0),
-            b: BigInt(7),
-            Gx: BigInt('0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798'),
-            Gy: BigInt('0x483ADA7726A3C4655DA4FBFC0E1108A8FD17B448A68554199C47D08FFB10D4B8')
-        };
+            static G = new Point(
+                BigInt('0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798'),
+                BigInt('0x483ADA7726A3C4655DA4FBFC0E1108A8FD17B448A68554199C47D08FFB10D4B8')
+            );
 
-        // Modular arithmetic functions
-        function mod(a, n) {
-            return ((a % n) + n) % n;
-        }
+            static P = BigInt('0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F');
 
-        function modPow(base, exponent, modulus) {
-            if (modulus === BigInt(1)) return BigInt(0);
-            let result = BigInt(1);
-            base = mod(base, modulus);
-            while (exponent > BigInt(0)) {
-                if (exponent & BigInt(1)) {
-                    result = mod(result * base, modulus);
+            add(other) {
+                if (this.x === 0n && this.y === 0n) return other;
+                if (other.x === 0n && other.y === 0n) return this;
+
+                let m;
+                if (this.x === other.x) {
+                    if (this.y === other.y) {
+                        m = (3n * this.x * this.x) * this.modInverse(2n * this.y, Point.P);
+                    } else {
+                        return new Point(0n, 0n);
+                    }
+                } else {
+                    m = (other.y - this.y) * this.modInverse(other.x - this.x, Point.P);
                 }
-                base = mod(base * base, modulus);
-                exponent >>= BigInt(1);
-            }
-            return result;
-        }
 
-        // Point arithmetic on secp256k1
-        function pointAdd(p1, p2) {
-            if (p1 === null) return p2;
-            if (p2 === null) return p1;
+                m = this.mod(m, Point.P);
+                const x3 = this.mod(m * m - this.x - other.x, Point.P);
+                const y3 = this.mod(m * (this.x - x3) - this.y, Point.P);
 
-            const [x1, y1] = p1;
-            const [x2, y2] = p2;
-
-            if (x1 === x2 && y1 !== y2) return null;
-
-            let m;
-            if (x1 === x2) {
-                m = mod((BigInt(3) * x1 * x1 + secp256k1.a) * 
-                    modPow(BigInt(2) * y1, secp256k1.p - BigInt(2), secp256k1.p), secp256k1.p);
-            } else {
-                m = mod((y2 - y1) * modPow(x2 - x1, secp256k1.p - BigInt(2), secp256k1.p), secp256k1.p);
+                return new Point(x3, y3);
             }
 
-            const x3 = mod(m * m - x1 - x2, secp256k1.p);
-            const y3 = mod(m * (x1 - x3) - y1, secp256k1.p);
-
-            return [x3, y3];
-        }
-
-        function pointMultiply(k, point) {
-            let result = null;
-            let current = point;
-            
-            while (k > BigInt(0)) {
-                if (k & BigInt(1)) {
-                    result = pointAdd(result, current);
+            multiply(k) {
+                let result = new Point(0n, 0n);
+                let current = this;
+                while (k > 0n) {
+                    if (k & 1n) {
+                        result = result.add(current);
+                    }
+                    current = current.add(current);
+                    k >>= 1n;
                 }
-                current = pointAdd(current, current);
-                k >>= BigInt(1);
+                return result;
             }
-            
-            return result;
+
+            mod(a, n) {
+                return ((a % n) + n) % n;
+            }
+
+            modInverse(a, n) {
+                let [t, newt] = [0n, 1n];
+                let [r, newr] = [n, this.mod(a, n)];
+
+                while (newr !== 0n) {
+                    const quotient = r / newr;
+                    [t, newt] = [newt, t - quotient * newt];
+                    [r, newr] = [newr, r - quotient * newr];
+                }
+
+                if (r > 1n) throw new Error('Not invertible');
+                if (t < 0n) t += n;
+                return t;
+            }
         }
 
-        // Convert array to hex string
         function toHex(buffer) {
             return Array.from(buffer)
                 .map(b => b.toString(16).padStart(2, '0'))
                 .join('');
         }
 
-        // Convert BigInt to 32-byte array
         function bigIntToBytes(bn) {
             let hex = bn.toString(16).padStart(64, '0');
             let bytes = new Uint8Array(32);
             for (let i = 0; i < 32; i++) {
-                bytes[i] = parseInt(hex.substr(i * 2, 2), 16);
+                bytes[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
             }
             return bytes;
         }
 
-        // Generate Ethereum address from public key point
-        function publicKeyToAddress(publicKeyPoint) {
-            const [x, y] = publicKeyPoint;
-            const xBytes = bigIntToBytes(x);
-            const yBytes = bigIntToBytes(y);
-            
-            // Concatenate x and y coordinates
-            const publicKeyBytes = new Uint8Array(64);
-            publicKeyBytes.set(xBytes);
-            publicKeyBytes.set(yBytes, 32);
-            
-            // Generate Keccak-256 hash
-            const hash = Keccak.hash(publicKeyBytes);
-            
-            // Take last 20 bytes
+        function publicKeyToAddress(publicKey) {
+            const hash = Keccak.hash(publicKey.slice(1)); // Remove the 0x04 prefix
             return '0x' + toHex(hash.slice(-20));
         }
 
@@ -274,22 +238,25 @@
                 // Generate private key
                 const privateKeyArray = new Uint8Array(32);
                 crypto.getRandomValues(privateKeyArray);
-                const privateKey = BigInt('0x' + toHex(privateKeyArray)) % secp256k1.n;
+                const privateKey = BigInt('0x' + toHex(privateKeyArray));
 
                 // Generate public key
-                const publicKeyPoint = pointMultiply(
-                    privateKey, 
-                    [secp256k1.Gx, secp256k1.Gy]
-                );
+                const publicPoint = Point.G.multiply(privateKey);
+                
+                // Convert public key point to bytes (uncompressed format)
+                const publicKeyBytes = new Uint8Array(65);
+                publicKeyBytes[0] = 0x04; // Uncompressed point format
+                const xBytes = bigIntToBytes(publicPoint.x);
+                const yBytes = bigIntToBytes(publicPoint.y);
+                publicKeyBytes.set(xBytes, 1);
+                publicKeyBytes.set(yBytes, 33);
 
-                // Generate address
-                const address = publicKeyToAddress(publicKeyPoint);
+                // Generate Ethereum address
+                const address = publicKeyToAddress(publicKeyBytes);
 
                 // Display results
                 document.getElementById('privateKey').textContent = '0x' + privateKey.toString(16).padStart(64, '0');
-                document.getElementById('publicKey').textContent = '0x' + 
-                    publicKeyPoint[0].toString(16).padStart(64, '0') +
-                    publicKeyPoint[1].toString(16).padStart(64, '0');
+                document.getElementById('publicKey').textContent = '0x' + toHex(publicKeyBytes);
                 document.getElementById('address').textContent = address;
             } catch (error) {
                 console.error('Error generating keypair:', error);
