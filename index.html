@@ -2,266 +2,92 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Ethereum Keypair Generator</title>
+    <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
     <style>
         body {
             font-family: Arial, sans-serif;
-            max-width: 800px;
-            margin: 20px auto;
-            padding: 20px;
-            background-color: #f5f5f5;
+            text-align: center;
+            background-color: #f8f9fa;
+            margin: 0;
+            padding: 0;
         }
         .container {
-            background-color: white;
+            max-width: 600px;
+            margin: 50px auto;
+            background: #ffffff;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            border-radius: 10px;
             padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1 {
+            font-size: 24px;
+            color: #343a40;
+            margin-bottom: 20px;
         }
         button {
-            background-color: #4CAF50;
-            color: white;
             padding: 10px 20px;
+            background-color: #28a745;
+            color: white;
             border: none;
-            border-radius: 4px;
+            border-radius: 5px;
             cursor: pointer;
-            margin: 10px 0;
+            font-size: 16px;
         }
         button:hover {
-            background-color: #45a049;
+            background-color: #218838;
         }
         .output {
-            word-break: break-all;
-            margin: 10px 0;
-            padding: 10px;
+            margin-top: 20px;
+            padding: 15px;
+            border: 1px solid #dee2e6;
+            border-radius: 5px;
             background-color: #f8f9fa;
-            border-radius: 4px;
+            text-align: left;
+            word-wrap: break-word;
+        }
+        .output p {
+            margin: 10px 0;
+            font-size: 14px;
+            color: #495057;
+        }
+        .output span {
+            display: block;
+            background-color: #e9ecef;
+            padding: 10px;
+            border-radius: 5px;
+            font-family: monospace;
+            font-size: 14px;
+            color: #212529;
         }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>Ethereum Keypair Generator</h1>
+        <p>Click the button below to generate an Ethereum keypair.</p>
         <button onclick="generateKeypair()">Generate New Keypair</button>
-        <div>
-            <h3>Private Key:</h3>
-            <div id="privateKey" class="output"></div>
-            <h3>Public Key:</h3>
-            <div id="publicKey" class="output"></div>
-            <h3>Ethereum Address:</h3>
-            <div id="address" class="output"></div>
+
+        <div id="output" class="output" hidden>
+            <p><strong>Private Key:</strong></p>
+            <span id="privateKey"></span>
+            <p><strong>Public Address:</strong></p>
+            <span id="publicAddress"></span>
         </div>
     </div>
 
     <script>
-        class Keccak {
-            static hash(input) {
-                const keccak = new Keccak();
-                keccak.update(input);
-                return keccak.digest();
-            }
-
-            constructor() {
-                this.state = new Uint32Array(25);
-                this.temp = new Uint32Array(25);
-                this.ptr = 0;
-            }
-
-            update(input) {
-                for (let i = 0; i < input.length; i++) {
-                    this.state[Math.floor(this.ptr / 4)] ^= input[i] << (8 * (this.ptr % 4));
-                    this.ptr++;
-                    if (this.ptr >= 136) {
-                        this.keccakf();
-                        this.ptr = 0;
-                    }
-                }
-                return this;
-            }
-
-            digest() {
-                // Padding
-                this.state[Math.floor(this.ptr / 4)] ^= 0x01 << (8 * (this.ptr % 4));
-                this.ptr = 136;
-                this.state[Math.floor(this.ptr / 4) - 1] ^= 0x80 << (8 * ((this.ptr - 1) % 4));
-                this.keccakf();
-
-                // Output
-                const out = new Uint8Array(32);
-                for (let i = 0; i < 32; i++) {
-                    out[i] = (this.state[Math.floor(i / 4)] >> (8 * (i % 4))) & 0xff;
-                }
-                return out;
-            }
-
-            keccakf() {
-                for (let round = 0; round < 24; round++) {
-                    // θ step
-                    for (let x = 0; x < 5; x++) {
-                        this.temp[x] = 0;
-                        for (let y = 0; y < 5; y++) {
-                            this.temp[x] ^= this.state[x + 5 * y];
-                        }
-                    }
-                    for (let x = 0; x < 5; x++) {
-                        const t = this.temp[(x + 4) % 5] ^ ((this.temp[(x + 1) % 5] << 1) | (this.temp[(x + 1) % 5] >>> 31));
-                        for (let y = 0; y < 5; y++) {
-                            this.state[x + 5 * y] ^= t;
-                        }
-                    }
-
-                    // ρ and π steps
-                    let x = 1, y = 0;
-                    let current = this.state[1];
-                    for (let t = 0; t < 24; t++) {
-                        const r = ((t + 1) * (t + 2) / 2) % 64;
-                        const temp = x;
-                        x = y;
-                        y = (2 * temp + 3 * y) % 5;
-                        const next = this.state[x + 5 * y];
-                        this.state[x + 5 * y] = (current << r) | (current >>> (32 - r));
-                        current = next;
-                    }
-
-                    // χ step
-                    for (let y = 0; y < 5; y++) {
-                        for (let x = 0; x < 5; x++) {
-                            this.temp[x] = this.state[x + 5 * y];
-                        }
-                        for (let x = 0; x < 5; x++) {
-                            this.state[x + 5 * y] = this.temp[x] ^ ((~this.temp[(x + 1) % 5]) & this.temp[(x + 2) % 5]);
-                        }
-                    }
-
-                    // ι step
-                    let RC = 1;
-                    for (let j = 0; j < 7; j++) {
-                        RC = ((RC << 1) ^ ((RC >> 7) * 0x71)) % 256;
-                        if (RC & 2) {
-                            this.state[0] ^= 1 << ((1 << j) - 1);
-                        }
-                    }
-                }
-            }
-        }
-
-        // Point on secp256k1 curve
-        class Point {
-            constructor(x, y) {
-                this.x = x;
-                this.y = y;
-            }
-
-            static G = new Point(
-                BigInt('0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798'),
-                BigInt('0x483ADA7726A3C4655DA4FBFC0E1108A8FD17B448A68554199C47D08FFB10D4B8')
-            );
-
-            static P = BigInt('0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F');
-
-            add(other) {
-                if (this.x === 0n && this.y === 0n) return other;
-                if (other.x === 0n && other.y === 0n) return this;
-
-                let m;
-                if (this.x === other.x) {
-                    if (this.y === other.y) {
-                        m = (3n * this.x * this.x) * this.modInverse(2n * this.y, Point.P);
-                    } else {
-                        return new Point(0n, 0n);
-                    }
-                } else {
-                    m = (other.y - this.y) * this.modInverse(other.x - this.x, Point.P);
-                }
-
-                m = this.mod(m, Point.P);
-                const x3 = this.mod(m * m - this.x - other.x, Point.P);
-                const y3 = this.mod(m * (this.x - x3) - this.y, Point.P);
-
-                return new Point(x3, y3);
-            }
-
-            multiply(k) {
-                let result = new Point(0n, 0n);
-                let current = this;
-                while (k > 0n) {
-                    if (k & 1n) {
-                        result = result.add(current);
-                    }
-                    current = current.add(current);
-                    k >>= 1n;
-                }
-                return result;
-            }
-
-            mod(a, n) {
-                return ((a % n) + n) % n;
-            }
-
-            modInverse(a, n) {
-                let [t, newt] = [0n, 1n];
-                let [r, newr] = [n, this.mod(a, n)];
-
-                while (newr !== 0n) {
-                    const quotient = r / newr;
-                    [t, newt] = [newt, t - quotient * newt];
-                    [r, newr] = [newr, r - quotient * newr];
-                }
-
-                if (r > 1n) throw new Error('Not invertible');
-                if (t < 0n) t += n;
-                return t;
-            }
-        }
-
-        function toHex(buffer) {
-            return Array.from(buffer)
-                .map(b => b.toString(16).padStart(2, '0'))
-                .join('');
-        }
-
-        function bigIntToBytes(bn) {
-            let hex = bn.toString(16).padStart(64, '0');
-            let bytes = new Uint8Array(32);
-            for (let i = 0; i < 32; i++) {
-                bytes[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
-            }
-            return bytes;
-        }
-
-        function publicKeyToAddress(publicKey) {
-            const hash = Keccak.hash(publicKey.slice(1)); // Remove the 0x04 prefix
-            return '0x' + toHex(hash.slice(-20));
-        }
-
         function generateKeypair() {
-            try {
-                // Generate private key
-                const privateKeyArray = new Uint8Array(32);
-                crypto.getRandomValues(privateKeyArray);
-                const privateKey = BigInt('0x' + toHex(privateKeyArray));
+            // Generate a wallet using ethers.js
+            const wallet = ethers.Wallet.createRandom();
 
-                // Generate public key
-                const publicPoint = Point.G.multiply(privateKey);
-                
-                // Convert public key point to bytes (uncompressed format)
-                const publicKeyBytes = new Uint8Array(65);
-                publicKeyBytes[0] = 0x04; // Uncompressed point format
-                const xBytes = bigIntToBytes(publicPoint.x);
-                const yBytes = bigIntToBytes(publicPoint.y);
-                publicKeyBytes.set(xBytes, 1);
-                publicKeyBytes.set(yBytes, 33);
+            // Display the generated private key and public address
+            document.getElementById('privateKey').textContent = wallet.privateKey;
+            document.getElementById('publicAddress').textContent = wallet.address;
 
-                // Generate Ethereum address
-                const address = publicKeyToAddress(publicKeyBytes);
-
-                // Display results
-                document.getElementById('privateKey').textContent = '0x' + privateKey.toString(16).padStart(64, '0');
-                document.getElementById('publicKey').textContent = '0x' + toHex(publicKeyBytes);
-                document.getElementById('address').textContent = address;
-            } catch (error) {
-                console.error('Error generating keypair:', error);
-                alert('Error generating keypair. Please check the console for details.');
-            }
+            // Show the output div
+            document.getElementById('output').hidden = false;
         }
     </script>
 </body>
