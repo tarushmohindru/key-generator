@@ -61,6 +61,15 @@
             font-size: 14px;
             color: #212529;
         }
+        .error {
+            margin-top: 20px;
+            padding: 15px;
+            border: 1px solid #e0a0a0;
+            border-radius: 5px;
+            background-color: #f8d7da;
+            color: #842029;
+            font-size: 14px;
+        }
     </style>
 </head>
 <body>
@@ -75,19 +84,34 @@
             <p><strong>Public Address:</strong></p>
             <span id="publicAddress"></span>
         </div>
+
+        <div id="error" class="error" hidden>
+            <p><strong>Error:</strong> Your browser does not support Ethereum keypair generation or there was an issue with the process. Please ensure you are using a modern browser and try again.</p>
+        </div>
     </div>
 
     <script>
         function generateKeypair() {
-            // Generate a wallet using ethers.js
-            const wallet = ethers.Wallet.createRandom();
+            try {
+                if (!ethers || !ethers.Wallet) {
+                    throw new Error("Ethers.js library is not loaded.");
+                }
 
-            // Display the generated private key and public address
-            document.getElementById('privateKey').textContent = wallet.privateKey;
-            document.getElementById('publicAddress').textContent = wallet.address;
+                const wallet = ethers.Wallet.createRandom();
 
-            // Show the output div
-            document.getElementById('output').hidden = false;
+                document.getElementById('privateKey').textContent = wallet.privateKey;
+                document.getElementById('publicAddress').textContent = wallet.address;
+
+                document.getElementById('output').hidden = false;
+
+                document.getElementById('error').hidden = true;
+            } catch (error) {
+                console.error("Keypair generation error:", error);
+
+                document.getElementById('error').hidden = false;
+
+                document.getElementById('output').hidden = true;
+            }
         }
     </script>
 </body>
